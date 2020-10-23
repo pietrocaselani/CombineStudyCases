@@ -108,6 +108,57 @@ deferredFuture
     .sink { print(">>> \($0)")}
     .store(in: &cancellables)
 
+let zenURL = URL(string: "https://api.github.com/zen")!
+
+struct CancelToken {
+    let cancel: () -> Void
+}
+
+func request(url: URL, completion: @escaping (Result<String, Error>) -> Void) -> CancelToken {
+    let task = URLSession.shared.dataTask(
+        with: url,
+        completionHandler: { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                let string = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                completion(.success(string))
+            }
+
+        }
+    )
+
+    task.resume()
+
+    return CancelToken { task.cancel() }
+}
+
+//let token = request(url: zenURL) { result in
+//    print(">>> result = \(result)")
+//}
+
+func requestPublisher(url: URL) -> AnyPublisher<String, Error> {
+    var token: CancelToken?
+    let future = Future<String, Error> { completion in
+        token = request(url: url, completion: completion)
+    }.handleEvents(
+        receiveCancel: {
+            token?.cancel()
+        }
+    )
+
+    return Deferred { future }.eraseToAnyPublisher()
+}
+
+requestPublisher(url: zenURL).sink(
+    receiveCompletion: { completion in
+        print(">>> request completion \(completion)")
+    },
+    receiveValue: { value in
+        print(">>> request value \(value)")
+    }
+).store(in: &cancellables)
+
 print(">>> End of Playground ✅")
 
 //: [Next](@next)
